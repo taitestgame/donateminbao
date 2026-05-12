@@ -137,6 +137,17 @@
             }
         }
 
+        function getMimeType(filename) {
+            if (filename.endsWith('.mp4')) return 'video/mp4';
+            if (filename.endsWith('.webm')) return 'video/webm';
+            if (filename.endsWith('.gif')) return 'image/gif';
+            if (filename.endsWith('.png')) return 'image/png';
+            if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) return 'image/jpeg';
+            if (filename.endsWith('.mp3')) return 'audio/mpeg';
+            if (filename.endsWith('.wav')) return 'audio/wav';
+            return 'application/octet-stream';
+        }
+
         function showAlert(data) {
             clearTimeout(previewTimer);
             const settings = {...globalSettings, ...data.custom_settings};
@@ -147,34 +158,33 @@
 
             const isVideo = data.media.endsWith('.mp4') || data.media.endsWith('.webm');
             
-            // Build paths (Check if we are running from Git or Local)
-            let mediaPath, audioPath;
-            const baseUrl = settings.asset_base_url || "";
-            
-            if (baseUrl) {
-                mediaPath = baseUrl + data.media;
-                audioPath = baseUrl + data.audio;
+            // Build paths (Base64 data or URL)
+            let mediaSrc, audioSrc;
+            if (data.mediaData) {
+                mediaSrc = `data:${getMimeType(data.media)};base64,${data.mediaData}`;
             } else {
-                // If on Git (HTTPS), use relative paths to Git files
-                // If on Local (localhost), use local server paths
-                if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-                    mediaPath = data.media; // Assume files are in the same folder on Git
-                    audioPath = data.audio;
-                } else {
-                    mediaPath = `/static/${data.media}`;
-                    audioPath = `/voices/${data.audio}`;
-                }
+                const baseUrl = settings.asset_base_url || "";
+                mediaSrc = baseUrl ? (baseUrl + data.media) : (window.location.hostname !== 'localhost' ? data.media : `/static/${data.media}`);
+                mediaSrc += `?t=${Date.now()}`;
+            }
+
+            if (data.audioData) {
+                audioSrc = `data:${getMimeType(data.audio)};base64,${data.audioData}`;
+            } else {
+                const baseUrl = settings.asset_base_url || "";
+                audioSrc = baseUrl ? (baseUrl + data.audio) : (window.location.hostname !== 'localhost' ? data.audio : `/voices/${data.audio}`);
+                audioSrc += `?t=${Date.now()}`;
             }
 
             if (isVideo) {
                 img.style.display = 'none';
                 video.style.display = 'block';
-                video.src = `${mediaPath}?t=${Date.now()}`;
+                video.src = mediaSrc;
                 if (!data.isPreview) video.play(); else { video.currentTime = 0; video.pause(); }
             } else {
                 video.style.display = 'none';
                 img.style.display = 'block';
-                img.src = `${mediaPath}?t=${Date.now()}`;
+                img.src = mediaSrc;
             }
 
             container.style.display = 'block';
@@ -187,7 +197,7 @@
                 else if (currentEffect === 'Bounce In') container.classList.add('anim-bounce');
                 else if (currentEffect === 'Zoom In') container.classList.add('anim-zoom');
                 
-                audio.src = `${audioPath}?t=${Date.now()}`;
+                audio.src = audioSrc;
                 audio.play().catch(e => console.log("Auto-play blocked:", e));
 
                 let finished = false;
