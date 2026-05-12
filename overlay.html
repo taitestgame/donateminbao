@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TikTok Alert Overlay</title>
+    <style>
+        :root {
+            --img-width: 400px;
+            --font-size: 36px;
+            --text-color: #ffffff;
+            --font-family: 'Arial';
+            --border-radius: 15px;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: transparent; 
+            font-family: var(--font-family), sans-serif;
+        }
+        #alert-container {
+            position: absolute;
+            display: none;
+            text-align: center;
+            width: auto;
+            max-width: 90%;
+            z-index: 9999;
+        }
+        
+        /* Positions */
+        .pos-center { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .pos-top-left { top: 30px; left: 30px; }
+        .pos-top-right { top: 30px; right: 30px; }
+        .pos-bottom-left { bottom: 30px; left: 30px; }
+        .pos-bottom-right { bottom: 30px; right: 30px; }
+
+        #media-container {
+            width: var(--img-width);
+            margin: 0 auto;
+            filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.5));
+            overflow: hidden;
+            border-radius: var(--border-radius);
+        }
+        #alert-image, #alert-video {
+            width: 100%;
+            display: none;
+            border-radius: var(--border-radius);
+            object-fit: cover;
+        }
+        #alert-text {
+            color: var(--text-color);
+            font-size: var(--font-size);
+            font-family: var(--font-family), sans-serif;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(0,0,0,1), 0 0 20px rgba(255, 255, 255, 0.3);
+            background: rgba(0,0,0,0.6);
+            padding: 15px 40px;
+            border-radius: 50px;
+            display: inline-block;
+            margin-top: 20px;
+            white-space: nowrap;
+        }
+
+        /* Animations */
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(100px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes bounceIn { 0% { opacity: 0; transform: scale(0.3); } 50% { opacity: 1; transform: scale(1.05); } 70% { transform: scale(0.9); } 100% { transform: scale(1); } }
+        @keyframes zoomIn { from { opacity: 0; transform: scale(3); } to { opacity: 1; transform: scale(1); } }
+        @keyframes fadeOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.8); } }
+
+        .anim-fade { animation: fadeIn 0.5s ease-out forwards; }
+        .anim-slide { animation: slideUp 0.5s ease-out forwards; }
+        .anim-bounce { animation: bounceIn 0.8s forwards; }
+        .anim-zoom { animation: zoomIn 0.5s ease-out forwards; }
+        .anim-out { animation: fadeOut 0.5s ease-in forwards; }
+    </style>
+</head>
+<body>
+    <div id="alert-container" class="pos-center">
+        <div id="media-container">
+            <img id="alert-image" src="" alt="Alert">
+            <video id="alert-video" playsinline></video>
+        </div>
+        <div id="alert-text">WELCOME</div>
+    </div>
+    <audio id="alert-audio"></audio>
+
+    <script>
+        const container = document.getElementById('alert-container');
+        const text = document.getElementById('alert-text');
+        const audio = document.getElementById('alert-audio');
+        const img = document.getElementById('alert-image');
+        const video = document.getElementById('alert-video');
+
+        let globalSettings = {};
+        let currentEffect = 'Fade In';
+        let previewTimer = null;
+
+        // Dynamic Server Connection
+        const params = new URLSearchParams(window.location.search);
+        const serverAddr = params.get('server') || window.location.host;
+        const protocol = (serverAddr.includes('localhost') || serverAddr.includes('127.0.0.1')) ? 'ws:' : 'wss:';
+        
+        console.log(`Connecting to Backend: ${protocol}//${serverAddr}/ws`);
+        const socket = new WebSocket(`${protocol}//${serverAddr}/ws`);
+
+        socket.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'alert') {
+                showAlert(msg);
+            } else if (msg.type === 'settings') {
+                globalSettings = msg.data;
+                applyUI(globalSettings);
+            }
+        };
+
+        function getRadius(shape) {
+            if (shape === 'Circle') return '50%';
+            if (shape === 'Rounded') return '25px';
+            return '0%';
+        }
+
+        function applyUI(settings) {
+            document.documentElement.style.setProperty('--img-width', `${settings.img_size}px`);
+            document.documentElement.style.setProperty('--font-size', `${settings.font_size}px`);
+            document.documentElement.style.setProperty('--text-color', settings.text_color);
+            if (settings.font_family) document.documentElement.style.setProperty('--font-family', settings.font_family);
+            document.documentElement.style.setProperty('--border-radius', getRadius(settings.shape));
+            
+            if (settings.effect) currentEffect = settings.effect;
+
+            if (settings.position) {
+                container.classList.remove('pos-center', 'pos-top-left', 'pos-top-right', 'pos-bottom-left', 'pos-bottom-right');
+                const posClass = 'pos-' + settings.position.toLowerCase().replace(' ', '-');
+                container.classList.add(posClass);
+            }
+        }
+
+        function showAlert(data) {
+            clearTimeout(previewTimer);
+            const settings = {...globalSettings, ...data.custom_settings};
+            applyUI(settings);
+
+            let welcome = settings.welcome_text || "CHÀO MỪNG";
+            text.innerText = `${welcome}: ${data.nickname}`;
+
+            const isVideo = data.media.endsWith('.mp4') || data.media.endsWith('.webm');
+            
+            // Build paths (Check if we are running from Git or Local)
+            let mediaPath, audioPath;
+            const baseUrl = settings.asset_base_url || "";
+            
+            if (baseUrl) {
+                mediaPath = baseUrl + data.media;
+                audioPath = baseUrl + data.audio;
+            } else {
+                // If on Git (HTTPS), use relative paths to Git files
+                // If on Local (localhost), use local server paths
+                if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                    mediaPath = data.media; // Assume files are in the same folder on Git
+                    audioPath = data.audio;
+                } else {
+                    mediaPath = `/static/${data.media}`;
+                    audioPath = `/voices/${data.audio}`;
+                }
+            }
+
+            if (isVideo) {
+                img.style.display = 'none';
+                video.style.display = 'block';
+                video.src = `${mediaPath}?t=${Date.now()}`;
+                if (!data.isPreview) video.play(); else { video.currentTime = 0; video.pause(); }
+            } else {
+                video.style.display = 'none';
+                img.style.display = 'block';
+                img.src = `${mediaPath}?t=${Date.now()}`;
+            }
+
+            container.style.display = 'block';
+            
+            if (!data.isPreview) {
+                container.classList.remove('anim-fade', 'anim-slide', 'anim-bounce', 'anim-zoom', 'anim-out');
+                void container.offsetWidth; 
+                if (currentEffect === 'Fade In') container.classList.add('anim-fade');
+                else if (currentEffect === 'Slide Up') container.classList.add('anim-slide');
+                else if (currentEffect === 'Bounce In') container.classList.add('anim-bounce');
+                else if (currentEffect === 'Zoom In') container.classList.add('anim-zoom');
+                
+                audio.src = `${audioPath}?t=${Date.now()}`;
+                audio.play().catch(e => console.log("Auto-play blocked:", e));
+
+                let finished = false;
+                const finish = () => {
+                    if (finished) return;
+                    finished = true;
+                    hideAlert();
+                };
+                audio.onended = finish;
+                if (isVideo) video.onended = finish;
+                setTimeout(finish, 10000); 
+            } else {
+                container.classList.remove('anim-out');
+                previewTimer = setTimeout(hideAlert, 5000);
+            }
+        }
+
+        function hideAlert() {
+            container.classList.add('anim-out');
+            setTimeout(() => {
+                container.style.display = 'none';
+                video.pause();
+                applyUI(globalSettings);
+            }, 500);
+        }
+
+        document.body.onclick = () => {
+            audio.play().then(() => audio.pause());
+            video.play().then(() => video.pause());
+        };
+    </script>
+</body>
+</html>

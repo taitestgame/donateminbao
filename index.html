@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Live Monitor Pro</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar for Logs -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fas fa-history"></i> Join History</h2>
+            </div>
+            <div id="log-list" class="log-list">
+                <!-- Logs will be injected here -->
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="host-config">
+                    <input type="text" id="host-id" placeholder="Enter Host ID (e.g. hnhung006z)">
+                    <button id="toggle-btn" class="btn-primary">
+                        <i class="fas fa-play"></i> <span>Start Monitoring</span>
+                    </button>
+                </div>
+                <div class="status-indicator">
+                    <span id="status-text">Disconnected</span>
+                    <div id="status-dot" class="dot"></div>
+                </div>
+            </header>
+
+            <section class="vip-management">
+                <div class="section-header">
+                    <h3><i class="fas fa-crown"></i> VIP User Management</h3>
+                    <button id="add-vip-btn" class="btn-secondary">
+                        <i class="fas fa-plus"></i> Add VIP
+                    </button>
+                </div>
+
+                <div class="vip-grid" id="vip-grid">
+                    <!-- VIP cards will be injected here -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal for Adding/Editing VIP -->
+    <div id="vip-modal" class="modal">
+        <div class="modal-content glass">
+            <span class="close">&times;</span>
+            <h2 id="modal-title">Add VIP User</h2>
+            <form id="vip-form">
+                <div class="form-group">
+                    <label for="vip-id">TikTok ID</label>
+                    <input type="text" id="vip-id" required placeholder="User unique ID">
+                </div>
+                <div class="form-group">
+                    <label for="vip-nickname">Nickname (Optional)</label>
+                    <input type="text" id="vip-nickname" placeholder="Display name">
+                </div>
+                <div class="form-group">
+                    <label for="vip-audio">Audio Alert (.mp3)</label>
+                    <div class="file-input-wrapper">
+                        <input type="file" id="vip-audio" accept=".mp3">
+                        <label for="vip-audio" class="file-label">
+                            <i class="fas fa-upload"></i> <span>Choose File</span>
+                        </label>
+                    </div>
+                    <small>File will be auto-renamed to match User ID.</small>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-success">Save VIP</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
