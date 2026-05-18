@@ -86,6 +86,32 @@
     </div>
     <audio id="alert-audio"></audio>
 
+    <!-- Unlock Screen: Click once to enable audio autoplay -->
+    <div id="unlock-screen" style="
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.85);
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        z-index: 99999; cursor: pointer;
+        font-family: Arial, sans-serif;
+    ">
+        <div style="text-align: center; color: white;">
+            <div style="font-size: 60px; margin-bottom: 20px;">🔊</div>
+            <div style="font-size: 28px; font-weight: bold; margin-bottom: 10px;">Nhấn để bắt đầu</div>
+            <div style="font-size: 16px; color: #aaa;">Kích hoạt âm thanh cho Overlay</div>
+            <div style="
+                margin-top: 30px; padding: 15px 50px;
+                background: #22c55e; border-radius: 50px;
+                font-size: 20px; font-weight: bold;
+                box-shadow: 0 0 30px rgba(34,197,94,0.6);
+                animation: pulse 1.5s infinite;
+            ">Click vào đây ▶</div>
+        </div>
+    </div>
+    <style>
+        @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+    </style>
+
     <script>
         const container = document.getElementById('alert-container');
         const text = document.getElementById('alert-text');
@@ -100,20 +126,40 @@
         // Dynamic Server Connection
         const params = new URLSearchParams(window.location.search);
         const serverAddr = params.get('server') || window.location.host;
-        const protocol = (serverAddr.includes('localhost') || serverAddr.includes('127.0.0.1')) ? 'ws:' : 'wss:';
+        // Auto detect protocol: wss for https, ws for http
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         
-        console.log(`Connecting to Backend: ${protocol}//${serverAddr}/ws`);
-        const socket = new WebSocket(`${protocol}//${serverAddr}/ws`);
+        let socket;
+        function connectWebSocket() {
+            console.log(`Connecting to Backend: ${protocol}//${serverAddr}/ws`);
+            socket = new WebSocket(`${protocol}//${serverAddr}/ws`);
 
-        socket.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'alert') {
-                showAlert(msg);
-            } else if (msg.type === 'settings') {
-                globalSettings = msg.data;
-                applyUI(globalSettings);
-            }
-        };
+            socket.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'alert') {
+                    if (msg.isPreview) {
+                        showAlert(msg); // Preview always shows immediately
+                    } else {
+                        enqueueAlert(msg); // Real alerts queue up
+                    }
+                } else if (msg.type === 'settings') {
+                    globalSettings = msg.data;
+                    applyUI(globalSettings);
+                }
+            };
+
+            socket.onclose = () => {
+                console.log("WebSocket disconnected. Reconnecting in 5s...");
+                setTimeout(connectWebSocket, 5000);
+            };
+
+            socket.onerror = (err) => {
+                console.error("WebSocket error observed:", err);
+                socket.close(); // Force close to trigger onclose and reconnect
+            };
+        }
+
+        connectWebSocket();
 
         function getRadius(shape) {
             if (shape === 'Circle') return '50%';
@@ -148,8 +194,27 @@
             return 'application/octet-stream';
         }
 
+        // === ALERT QUEUE SYSTEM ===
+        let alertQueue = [];
+        let isShowingAlert = false;
+
+        function enqueueAlert(data) {
+            alertQueue.push(data);
+            if (!isShowingAlert) processNextAlert();
+        }
+
+        function processNextAlert() {
+            if (alertQueue.length === 0) {
+                isShowingAlert = false;
+                return;
+            }
+            isShowingAlert = true;
+            const data = alertQueue.shift();
+            showAlert(data);
+        }
+        // ==========================
+
         function showAlert(data) {
-            clearTimeout(previewTimer);
             const settings = {...globalSettings, ...data.custom_settings};
             applyUI(settings);
 
@@ -158,13 +223,18 @@
 
             const isVideo = data.media.endsWith('.mp4') || data.media.endsWith('.webm');
             
-            // Build paths (Base64 data or URL)
+            // Build paths (Base64 data or User Static or Bundled)
             let mediaSrc, audioSrc;
             if (data.mediaData) {
                 mediaSrc = `data:${getMimeType(data.media)};base64,${data.mediaData}`;
             } else {
                 const baseUrl = settings.asset_base_url || "";
-                mediaSrc = baseUrl ? (baseUrl + data.media) : (window.location.hostname !== 'localhost' ? data.media : `/static/${data.media}`);
+                if (baseUrl) {
+                    mediaSrc = baseUrl + data.media;
+                } else {
+                    // Try local user_static first, then fall back to bundled static
+                    mediaSrc = `/user_static/${data.media}`;
+                }
                 mediaSrc += `?t=${Date.now()}`;
             }
 
@@ -172,7 +242,12 @@
                 audioSrc = `data:${getMimeType(data.audio)};base64,${data.audioData}`;
             } else {
                 const baseUrl = settings.asset_base_url || "";
-                audioSrc = baseUrl ? (baseUrl + data.audio) : (window.location.hostname !== 'localhost' ? data.audio : `/voices/${data.audio}`);
+                if (baseUrl) {
+                    audioSrc = baseUrl + data.audio;
+                } else {
+                    // Try local voices first
+                    audioSrc = `/voices/${data.audio}`;
+                }
                 audioSrc += `?t=${Date.now()}`;
             }
 
@@ -204,30 +279,72 @@
                 const finish = () => {
                     if (finished) return;
                     finished = true;
-                    hideAlert();
+                    hideAlert(() => processNextAlert());
                 };
                 audio.onended = finish;
                 if (isVideo) video.onended = finish;
+                // Fallback timeout: 10s max per alert
                 setTimeout(finish, 10000); 
             } else {
                 container.classList.remove('anim-out');
-                previewTimer = setTimeout(hideAlert, 5000);
+                setTimeout(hideAlert, 5000);
             }
         }
 
-        function hideAlert() {
+        function hideAlert(callback) {
             container.classList.add('anim-out');
             setTimeout(() => {
                 container.style.display = 'none';
                 video.pause();
                 applyUI(globalSettings);
+                if (callback) callback();
             }, 500);
         }
 
-        document.body.onclick = () => {
-            audio.play().then(() => audio.pause());
-            video.play().then(() => video.pause());
-        };
+
+        // === UNLOCK AUDIO ON FIRST CLICK ===
+        const unlockScreen = document.getElementById('unlock-screen');
+        let audioUnlocked = false;
+
+        function unlockAudio() {
+            if (audioUnlocked) return;
+            audioUnlocked = true;
+            // Play and immediately pause to unlock browser audio policy
+            audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+            audio.play().then(() => {
+                audio.pause();
+                audio.src = '';
+            }).catch(() => {});
+            video.play().then(() => video.pause()).catch(() => {});
+            // Hide unlock screen
+            unlockScreen.style.transition = 'opacity 0.4s';
+            unlockScreen.style.opacity = '0';
+            setTimeout(() => unlockScreen.style.display = 'none', 400);
+        }
+
+        unlockScreen.addEventListener('click', unlockAudio);
+        // ===========================================
+
+        // Auto-attempt unlock on page load (works in TikTok Live Studio, OBS, Streamlabs, etc.)
+        const silentAudio = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+        audio.src = silentAudio;
+        const autoplay = audio.play();
+        if (autoplay !== undefined) {
+            autoplay.then(() => {
+                // Success: streaming software allows autoplay → unlock immediately
+                audio.pause();
+                audio.src = '';
+                audioUnlocked = true;
+                unlockScreen.style.transition = 'opacity 0.4s';
+                unlockScreen.style.opacity = '0';
+                setTimeout(() => unlockScreen.style.display = 'none', 400);
+            }).catch(() => {
+                // Blocked: regular browser → keep unlock screen visible for manual click
+                audio.src = '';
+            });
+        }
+
+        document.body.onclick = () => unlockAudio();
     </script>
 </body>
 </html>
